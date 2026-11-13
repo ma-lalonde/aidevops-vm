@@ -1,0 +1,128 @@
+#!/bin/bash
+# User part of the guest setup, run by aidevops-vm.sh as the VM user on every run. Idempotent.
+# Needs HOME, XDG_RUNTIME_DIR and a logged-in gh. Environment: PULSE, MAX_WORKERS, RAM_RESERVE_MB, REPOS.
+set -euo pipefail
+
+: "${PULSE:?}" "${MAX_WORKERS:?}" "${RAM_RESERVE_MB:?}"
+REPOS="${REPOS:-}"
+
+export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
+CLONE="$HOME/Git/aidevops"
+REPOS_JSON="$HOME/.config/aidevops/repos.json"
+PULSE_TIMER=aidevops-supervisor-pulse.timer
+UPSTREAM_SLUG=marcusquinn/aidevops
+
+if [ "$PULSE" = on ]; then pulse_bool=true; else pulse_bool=false; fi
+
+# ---- npm prefix the user can write ------------------------------------------
+mkdir -p "$HOME/.npm-global"
+npm config set prefix "$HOME/.npm-global"
+profile_line='export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"'
+grep -qxF "$profile_line" "$HOME/.profile" 2>/dev/null || printf '%s\n' "$profile_line" >> "$HOME/.profile"
+
+# ---- aidevops clone: the updater owns it after this --------------------------
+if [ ! -d "$CLONE/.git" ]; then
+  mkdir -p "$HOME/Git"
+  git clone "https://github.com/$UPSTREAM_SLUG" "$CLONE"
+fi
+
+pulse_timer_present() {
+  systemctl --user cat "$PULSE_TIMER" >/dev/null 2>&1
+}
+
+pulse_timer_enabled() {
+  systemctl --user is-enabled --quiet "$PULSE_TIMER" 2>/dev/null
+}
+
+# ---- first install, or the pulse timer is missing while PULSE=on ---------------
+need_setup=0
+[ -f "$HOME/.aidevops/agents/VERSION" ] || need_setup=1
+if [ "$PULSE" = on ] && ! pulse_timer_present && [ ! -f "$HOME/.aidevops/logs/pulse-session.stop" ]; then
+  need_setup=1
+fi
+if [ "$need_setup" = 1 ]; then
+  # Consent for the pulse is read at setup time: the config file when it exists, the env var otherwise.
+  bash "$CLONE/.agents/scripts/config-helper.sh" set orchestration.supervisor_pulse "$pulse_bool" \
+    || echo "-- config-helper could not write before the first setup; relying on the env override --"
+  setup_log="$(mktemp)"
+  AIDEVOPS_SUPERVISOR_PULSE="$pulse_bool" AIDEVOPS_MAX_WORKERS_CAP="$MAX_WORKERS" \
+    bash "$CLONE/setup.sh" --non-interactive </dev/null 2>&1 | tee "$setup_log"
+  grep -q '^\[SETUP_COMPLETE\]' "$setup_log" || { echo "ERROR: setup.sh did not reach [SETUP_COMPLETE]" >&2; exit 1; }
+  rm -f "$setup_log"
+fi
+
+AIDEVOPS="$(command -v aidevops || true)"
+[ -n "$AIDEVOPS" ] || AIDEVOPS="$CLONE/aidevops.sh"
+
+# ---- config, timers ----------------------------------------------------------
+"$AIDEVOPS" config set orchestration.supervisor_pulse "$pulse_bool"
+"$AIDEVOPS" config set orchestration.max_workers_cap "$MAX_WORKERS"
+if [ "$PULSE" = on ]; then
+  if [ ! -f "$HOME/.aidevops/logs/pulse-session.stop" ] && pulse_timer_present && ! pulse_timer_enabled; then
+    systemctl --user enable --now "$PULSE_TIMER"
+  fi
+elif pulse_timer_enabled; then
+  systemctl --user disable --now "$PULSE_TIMER"
+fi
+"$AIDEVOPS" auto-update enable --idempotent
+"$AIDEVOPS" repo-sync enable
+
+dropin_dir="$HOME/.config/systemd/user/aidevops-supervisor-pulse.service.d"
+mkdir -p "$dropin_dir"
+printf '[Service]\nEnvironment=RAM_RESERVE_MB=%s\n' "$RAM_RESERVE_MB" > "$dropin_dir/10-memory.conf.new"
+if ! cmp -s "$dropin_dir/10-memory.conf.new" "$dropin_dir/10-memory.conf" 2>/dev/null; then
+  mv "$dropin_dir/10-memory.conf.new" "$dropin_dir/10-memory.conf"
+else
+  rm -f "$dropin_dir/10-memory.conf.new"
+fi
+systemctl --user daemon-reload
+
+# ---- repos -------------------------------------------------------------------
+login="$(gh api user --jq .login)"
+pulse_slugs=" "
+
+# set_repo_fields <slug> <base-branch>: generator opt-out and PR base branch, written atomically.
+set_repo_fields() {
+  local tmp
+  tmp="$(mktemp "$REPOS_JSON.XXXXXX")"
+  jq --arg s "$1" --arg b "$2" '
+    .initialized_repos |= map(
+      if .slug == $s then
+        .dependabot_alert_monitor = false
+        | (if $b == "" then del(.pr_base_branch) else .pr_base_branch = $b end)
+      else . end)' "$REPOS_JSON" > "$tmp"
+  mv "$tmp" "$REPOS_JSON"
+}
+
+for entry in $REPOS; do
+  IFS=: read -r slug flag base <<< "$entry"
+  owner="${slug%%/*}"
+  name="${slug#*/}"
+  if [ "$owner" = "$login" ]; then path="$HOME/Git/$name"; else path="$HOME/Git/$owner/$name"; fi
+  if [ ! -d "$path/.git" ]; then
+    mkdir -p "$(dirname "$path")"
+    gh repo clone "$slug" "$path"
+  fi
+  registered=0
+  if [ -f "$REPOS_JSON" ]; then
+    registered="$(jq --arg p "$path" '[.initialized_repos[]? | select(.path == $p)] | length' "$REPOS_JSON")"
+  fi
+  if [ "$registered" = 0 ]; then
+    "$AIDEVOPS" repos add "$path" --slug "$slug" --confirm REGISTER_CANONICAL_REPOSITORY
+  fi
+  if [ "$flag" = pulse ] && [ "$PULSE" = on ]; then
+    "$AIDEVOPS" repos pulse on "$slug"
+    pulse_slugs="$pulse_slugs$slug "
+  else
+    "$AIDEVOPS" repos pulse off "$slug"
+  fi
+  set_repo_fields "$slug" "${base:-}"
+done
+
+# A repo no longer marked :pulse stops, and stays cloned.
+if [ -f "$REPOS_JSON" ]; then
+  while read -r slug; do
+    [ "$slug" = "$UPSTREAM_SLUG" ] && continue
+    case "$pulse_slugs" in *" $slug "*) ;; *) "$AIDEVOPS" repos pulse off "$slug" ;; esac
+  done < <(jq -r '.initialized_repos[] | select(.pulse == true) | .slug' "$REPOS_JSON")
+fi

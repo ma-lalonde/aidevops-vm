@@ -1,0 +1,23 @@
+#cloud-config
+# First-boot bootstrap, run once. It only prepares /home on the block volume and
+# writes the marker aidevops-vm.sh waits for. Packages and configuration live in
+# guest/ and are applied on every aidevops-vm.sh run.
+
+users:
+  - default
+
+bootcmd:
+  # Runs before the user and mount modules. mkfs only when the device carries no
+  # filesystem, so a volume that survived a rebuild is mounted as it is.
+  - |
+    set -eu
+    dev=/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_incus_home
+    for _ in $(seq 1 60); do [ -b "$dev" ] && break; sleep 1; done
+    [ -b "$dev" ] || { echo "home volume device $dev missing" >&2; exit 1; }
+    blkid "$dev" >/dev/null 2>&1 || mkfs.ext4 -q -L aidevops-home "$dev"
+    grep -q '^LABEL=aidevops-home ' /etc/fstab || \
+      echo 'LABEL=aidevops-home /home ext4 defaults,nofail 0 2' >> /etc/fstab
+    mountpoint -q /home || mount /home
+
+runcmd:
+  - touch /var/lib/cloud/aidevops-vm-bootstrap-done
