@@ -18,8 +18,9 @@ One host script, `aidevops-vm.sh`, creates or repairs a Debian 13 Incus VM whose
 Needs Incus, `jq` and `ip` on the host.
 
 1. Make a GitHub account for the VM, give it Write (never admin) on the repos it works, and create a classic personal
-   access token with scopes `repo`, `workflow`, `read:org`, `gist`. Fine-grained tokens cannot span several owners or
-   third-party repos.
+   access token with scopes `repo`, `read:org`, `gist`. Fine-grained tokens cannot span several owners or
+   third-party repos. Without `workflow`, GitHub refuses any push that changes `.github/workflows/`, so workers
+   cannot change CI.
 2. Store the token in a file outside every repository with mode 0600.
 3. `cp .env.example .env`, then set `GITHUB_TOKEN_FILE`, `GIT_USER_NAME`, `GIT_USER_EMAIL` and `REPOS`. The script
    refuses a missing or group- or other-readable token file.
