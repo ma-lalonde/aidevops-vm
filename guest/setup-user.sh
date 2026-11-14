@@ -49,8 +49,9 @@ if [ "$need_setup" = 1 ]; then
   bash "$CLONE/.agents/scripts/config-helper.sh" set orchestration.supervisor_pulse "$pulse_bool" \
     || echo "-- config-helper could not write before the first setup; relying on the env override --"
   setup_log="$(mktemp)"
-  AIDEVOPS_SUPERVISOR_PULSE="$pulse_bool" AIDEVOPS_MAX_WORKERS_CAP="$MAX_WORKERS" \
-    bash "$CLONE/setup.sh" --non-interactive </dev/null 2>&1 | tee "$setup_log"
+  # setup.sh checks its location with pwd, so it runs from inside the clone.
+  (cd "$CLONE" && AIDEVOPS_SUPERVISOR_PULSE="$pulse_bool" AIDEVOPS_MAX_WORKERS_CAP="$MAX_WORKERS" \
+    bash ./setup.sh --non-interactive </dev/null 2>&1) | tee "$setup_log"
   grep -q '^\[SETUP_COMPLETE\]' "$setup_log" || { echo "ERROR: setup.sh did not reach [SETUP_COMPLETE]" >&2; exit 1; }
   rm -f "$setup_log"
 fi
