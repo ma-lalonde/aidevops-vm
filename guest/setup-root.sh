@@ -1,11 +1,14 @@
 #!/bin/bash
 # Root part of the guest setup, run by aidevops-vm.sh on every run. Idempotent.
-# Environment: NODE_MAJOR, REBOOT_TIME.
+# Environment: NODE_MAJOR, REBOOT_TIME; VALE_VERSION (optional: no Vale when empty).
 set -euo pipefail
 
 GUEST_USER=debian
 GUEST_UID=1000
 : "${NODE_MAJOR:?}" "${REBOOT_TIME:?}"
+VALE_VERSION="${VALE_VERSION:-}"
+# shellcheck source=guest/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 export DEBIAN_FRONTEND=noninteractive
 
 [ "$(id -u "$GUEST_USER")" = "$GUEST_UID" ] || { echo "ERROR: $GUEST_USER is not uid $GUEST_UID" >&2; exit 1; }
@@ -56,8 +59,47 @@ EOF
 # ---- packages ---------------------------------------------------------------
 apt-get update -qq
 apt-get install -y -qq git curl ca-certificates gnupg jq ripgrep fd-find python3 lsof openssl gh nodejs \
-  unattended-upgrades >/dev/null
+  golang-go unattended-upgrades >/dev/null
 [ -e /usr/local/bin/fd ] || ln -s "$(command -v fdfind)" /usr/local/bin/fd
+
+# ---- uv: installed now, then kept at the latest release by a daily timer --------------------------------
+GUEST_LIB="$(dirname "${BASH_SOURCE[0]}")"
+write_if_changed /etc/systemd/system/aidevops-uv-update.service 0644 <<EOF
+[Unit]
+Description=Install the latest uv release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash $GUEST_LIB/update-uv.sh
+EOF
+write_if_changed /etc/systemd/system/aidevops-uv-update.timer 0644 <<'EOF'
+[Unit]
+Description=Daily uv update
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable --now aidevops-uv-update.timer
+command -v uv >/dev/null || bash "$GUEST_LIB/update-uv.sh"
+
+# ---- Vale: the pinned release, checked against the checksum the release publishes ----------------------
+if [ -n "$VALE_VERSION" ] && [ "$(vale --version 2>/dev/null | cut -d' ' -f3)" != "$VALE_VERSION" ]; then
+  case "$arch" in
+    amd64) vale_arch=64-bit ;;
+    arm64) vale_arch=arm64 ;;
+    *) echo "ERROR: no Vale build for $arch" >&2; exit 1 ;;
+  esac
+  vale_file="vale_${VALE_VERSION}_Linux_${vale_arch}.tar.gz"
+  vale_base="https://github.com/errata-ai/vale/releases/download/v$VALE_VERSION"
+  install_release "$vale_base/$vale_file" "$vale_base/vale_${VALE_VERSION}_checksums.txt" vale
+fi
 
 # ---- unattended upgrades ----------------------------------------------------
 write_if_changed /etc/apt/apt.conf.d/20auto-upgrades 0644 <<'EOF'

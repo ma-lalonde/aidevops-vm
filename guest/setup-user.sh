@@ -1,10 +1,13 @@
 #!/bin/bash
 # User part of the guest setup, run by aidevops-vm.sh as the VM user on every run. Idempotent.
-# Needs HOME, XDG_RUNTIME_DIR and a logged-in gh. Environment: PULSE, MAX_WORKERS, RAM_RESERVE_MB, REPOS.
+# Needs HOME, XDG_RUNTIME_DIR and a logged-in gh. Environment: PULSE, MAX_WORKERS, RAM_RESERVE_MB, REPOS,
+# INSTRUCTIONS_REPO and INSTRUCTIONS_FILES (both optional).
 set -euo pipefail
 
 : "${PULSE:?}" "${MAX_WORKERS:?}" "${RAM_RESERVE_MB:?}"
 REPOS="${REPOS:-}"
+INSTRUCTIONS_REPO="${INSTRUCTIONS_REPO:-}"
+INSTRUCTIONS_FILES="${INSTRUCTIONS_FILES:-}"
 
 export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
 CLONE="$HOME/Git/aidevops"
@@ -54,6 +57,15 @@ fi
 AIDEVOPS="$(command -v aidevops || true)"
 [ -n "$AIDEVOPS" ] || AIDEVOPS="$CLONE/aidevops.sh"
 
+# ---- Go fetches the toolchain a go.mod names ----------------------------------------------------------
+if [ "$(go env GOTOOLCHAIN)" != auto ]; then go env -w GOTOOLCHAIN=auto; fi
+
+# ---- git ignores aidevops runtime state, so git add -A in a worktree never stages it -------------------
+mkdir -p "$HOME/.config/git"
+for ignored in .agents/loop-state/ .agents/tmp/ .agents/memory/ .agents/.full-loop-cleanup-deferred; do
+  grep -qxF "$ignored" "$HOME/.config/git/ignore" 2>/dev/null || printf '%s\n' "$ignored" >> "$HOME/.config/git/ignore"
+done
+
 # ---- config, timers ----------------------------------------------------------
 "$AIDEVOPS" config set orchestration.supervisor_pulse "$pulse_bool"
 "$AIDEVOPS" config set orchestration.max_workers_cap "$MAX_WORKERS"
@@ -96,6 +108,7 @@ set_repo_fields() {
 
 for entry in $REPOS; do
   IFS=: read -r slug flag base <<< "$entry"
+  if [ "$flag" != pulse ]; then base="$flag" flag=""; fi
   owner="${slug%%/*}"
   name="${slug#*/}"
   if [ "$owner" = "$login" ]; then path="$HOME/Git/$name"; else path="$HOME/Git/$owner/$name"; fi
@@ -125,4 +138,27 @@ if [ -f "$REPOS_JSON" ]; then
     [ "$slug" = "$UPSTREAM_SLUG" ] && continue
     case "$pulse_slugs" in *" $slug "*) ;; *) "$AIDEVOPS" repos pulse off "$slug" ;; esac
   done < <(jq -r '.initialized_repos[] | select(.pulse == true) | .slug' "$REPOS_JSON")
+fi
+
+# ---- instructions repository: kept current, its files loaded by every OpenCode session ----------------
+# Runs after setup.sh, which rewrites opencode.json but keeps the entries it finds in `instructions`.
+if [ -n "$INSTRUCTIONS_REPO" ]; then
+  instr_path="$HOME/Git/$INSTRUCTIONS_REPO"
+  if [ ! -d "$instr_path/.git" ]; then
+    mkdir -p "$(dirname "$instr_path")"
+    gh repo clone "$INSTRUCTIONS_REPO" "$instr_path"
+  else
+    git -C "$instr_path" pull --ff-only
+  fi
+  opencode_json="$HOME/.config/opencode/opencode.json"
+  mkdir -p "$(dirname "$opencode_json")"
+  [ -f "$opencode_json" ] || printf '{"$schema": "https://opencode.ai/config.json"}\n' > "$opencode_json"
+  for file in $INSTRUCTIONS_FILES; do
+    [ -f "$instr_path/$file" ] || { echo "ERROR: $instr_path/$file does not exist" >&2; exit 1; }
+    tmp="$(mktemp "$opencode_json.XXXXXX")"
+    jq --arg p "$instr_path/$file" '
+      .instructions = ((.instructions // [] | if type == "array" then . else [.] end)
+        | if index($p) then . else . + [$p] end)' "$opencode_json" > "$tmp"
+    mv "$tmp" "$opencode_json"
+  done
 fi

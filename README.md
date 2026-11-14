@@ -26,10 +26,26 @@ Needs Incus, `jq` and `ip` on the host.
    `gh auth login`; the login persists on the home volume. To supply it unattended instead, set `GITHUB_TOKEN_FILE`
    to a file with mode 0600 outside every repository; the script refuses one that is group- or other-readable.
 
-`REPOS` entries are `owner/repo[:pulse[:base-branch]]`. Every repo is cloned and registered with `aidevops repos add`;
+`REPOS` entries are `owner/repo[:pulse][:base-branch]`. Every repo is cloned and registered with `aidevops repos add`;
 `aidevops init` is never run, so no aidevops file is added to a repo. `:pulse` turns the pulse on for the repo, and a
-base branch (`owner/repo:pulse:dev`) makes workers open PRs against that branch. A repo without `:pulse` gets
-registered with the pulse off. A repo removed from `REPOS` has its pulse turned off and stays cloned.
+base branch (`owner/repo:pulse:dev`, or `owner/repo:dev` with the pulse off) makes workers open PRs against that
+branch. A repo without `:pulse` gets registered with the pulse off. A repo removed from `REPOS` has its pulse turned
+off and stays cloned.
+
+## Tools and instructions for the repos
+
+- Go: Debian's `golang-go`, updated by unattended-upgrades. Every run makes sure `go env GOTOOLCHAIN` is `auto`, so
+  Go fetches the toolchain a `go.mod` names.
+- uv: the latest release from github.com/astral-sh/uv, installed in `/usr/local/bin` after its tarball matches the
+  release's published checksum, and kept current by `aidevops-uv-update.timer` (daily; a missed run happens after a stop).
+- Vale: the release `VALE_VERSION` from github.com/errata-ai/vale, installed and verified the same way. It stays
+  pinned because a project's prose gate needs one exact version; left unset, no Vale is installed.
+- `INSTRUCTIONS_REPO` (`owner/repo`) is cloned to `~/Git/<owner>/<repo>` when absent and fast-forwarded on every run;
+  Each path of `INSTRUCTIONS_FILES` (relative to that repo, space-separated) is added to
+  `instructions` in `~/.config/opencode/opencode.json` when missing, after aidevops' own setup, which keeps it. A path
+  that does not exist in the clone stops the run.
+- `~/.config/git/ignore` lists aidevops' runtime state (`.agents/loop-state/`, `.agents/tmp/`, `.agents/memory/`,
+  `.agents/.full-loop-cleanup-deferred`), so `git add -A` in a worktree never stages it.
 
 ## One-time sign-ins
 
@@ -73,6 +89,7 @@ Worker slots follow free memory: `(available RAM - RAM_RESERVE_MB - growth) / 15
 - aidevops: `aidevops-auto-update.timer` (user timer, needs linger, which the script enables) pulls and redeploys it
   every ten minutes and rolls back a failed deploy.
 - OpenCode: the same updater's six-hourly tool check, through npm.
+- uv: `aidevops-uv-update.timer` (system timer, daily) installs the latest release.
 - Everything apt: unattended-upgrades, including the GitHub CLI and NodeSource repositories.
 
 See it with `./aidevops-vm.sh check`, or inside the VM `systemctl --user list-timers`, `aidevops auto-update status`,

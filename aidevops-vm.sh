@@ -29,11 +29,14 @@ VM_MEMORY="${VM_MEMORY:-8GiB}"
 ROOT_SIZE="${ROOT_SIZE:-16GiB}"
 HOME_SIZE="${HOME_SIZE:-40GiB}"
 NODE_MAJOR="${NODE_MAJOR:-26}"
+VALE_VERSION="${VALE_VERSION:-}"
 PULSE="${PULSE:-on}"
 MAX_WORKERS="${MAX_WORKERS:-3}"
 RAM_RESERVE_MB="${RAM_RESERVE_MB:-2048}"
 REBOOT_TIME="${REBOOT_TIME:-04:00}"
 REPOS="${REPOS:-}"
+INSTRUCTIONS_REPO="${INSTRUCTIONS_REPO:-}"
+INSTRUCTIONS_FILES="${INSTRUCTIONS_FILES:-}"
 BASE_IMAGE_REMOTE="${BASE_IMAGE_REMOTE:-images:debian/13/cloud}"
 BASE_IMAGE_ALIAS="aidevops-vm-base"
 GUEST_USER=debian
@@ -76,8 +79,16 @@ validate_config() {
   case "$PULSE" in on | off) ;; *) die "PULSE must be on or off" ;; esac
   local entry
   for entry in $REPOS; do
-    [[ "$entry" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(:pulse(:[A-Za-z0-9._/-]+)?)?$ ]] \
-      || die "REPOS entry '$entry' is not owner/repo[:pulse[:base-branch]]"
+    [[ "$entry" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+(:pulse(:[A-Za-z0-9._/-]+)?|:[A-Za-z0-9._/-]+)?$ ]] \
+      || die "REPOS entry '$entry' is not owner/repo[:pulse][:base-branch]"
+  done
+  [[ -z "$VALE_VERSION" || "$VALE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "VALE_VERSION '$VALE_VERSION' is not x.y.z"
+  [[ -z "$INSTRUCTIONS_REPO" || "$INSTRUCTIONS_REPO" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] \
+    || die "INSTRUCTIONS_REPO '$INSTRUCTIONS_REPO' is not owner/repo"
+  [ -z "$INSTRUCTIONS_FILES" ] || [ -n "$INSTRUCTIONS_REPO" ] || die "INSTRUCTIONS_FILES needs INSTRUCTIONS_REPO"
+  local file
+  for file in $INSTRUCTIONS_FILES; do
+    [[ "$file" =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ && "$file" != *..* ]] || die "INSTRUCTIONS_FILES entry '$file' is not a path inside the repository"
   done
 }
 
@@ -186,7 +197,8 @@ push_guest() {
 
 run_root_setup() {
   echo "-- guest root setup --"
-  incus exec "$VM_NAME" --env "NODE_MAJOR=$NODE_MAJOR" --env "REBOOT_TIME=$REBOOT_TIME" -- bash "$GUEST_DIR/guest/setup-root.sh"
+  incus exec "$VM_NAME" --env "NODE_MAJOR=$NODE_MAJOR" --env "REBOOT_TIME=$REBOOT_TIME" \
+    --env "VALE_VERSION=$VALE_VERSION" -- bash "$GUEST_DIR/guest/setup-root.sh"
 }
 
 # The token goes in on stdin, never in argv. A token file is applied on every run so a rotated token takes
@@ -215,7 +227,7 @@ login_github() {
 run_user_setup() {
   echo "-- guest user setup --"
   uexec --env "PULSE=$PULSE" --env "MAX_WORKERS=$MAX_WORKERS" --env "RAM_RESERVE_MB=$RAM_RESERVE_MB" \
-    --env "REPOS=$REPOS" \
+    --env "REPOS=$REPOS" --env "INSTRUCTIONS_REPO=$INSTRUCTIONS_REPO" --env "INSTRUCTIONS_FILES=$INSTRUCTIONS_FILES" \
     -- bash "$GUEST_DIR/guest/setup-user.sh" </dev/null
 }
 
@@ -300,6 +312,12 @@ allowed_origins() {
 
 no_cron_line() { ! uexec -- crontab -l 2>/dev/null | grep -qi aidevops; }
 
+tools_installed() {
+  uexec -- go version >/dev/null && uexec -- uv --version >/dev/null \
+    && gexec systemctl is-enabled --quiet aidevops-uv-update.timer \
+    && { [ -z "$VALE_VERSION" ] || [ "$(uexec -- vale --version | cut -d' ' -f3)" = "$VALE_VERSION" ]; }
+}
+
 linger() { [ "$(gexec loginctl show-user "$GUEST_USER" -p Linger --value)" = yes ]; }
 
 cmd_check() {
@@ -311,6 +329,7 @@ cmd_check() {
   if [ "$PULSE" = on ]; then check_step "user timer: supervisor pulse" user_timers_have aidevops-supervisor-pulse; fi
   check_step "no aidevops cron line" no_cron_line
   check_step "linger enabled" linger
+  check_step "go, uv (with its update timer) and vale installed" tools_installed
   check_step "auto-update health-check" uaidevops auto-update health-check
   check_step "aidevops status" uaidevops status
   check_step "pulse status" uaidevops pulse status
