@@ -81,13 +81,15 @@ validate_config() {
   done
 }
 
+# GITHUB_TOKEN_FILE is optional: without it, the token is asked for on the terminal when the VM's gh login is
+# missing or rejected.
 validate_token_and_git() {
-  [ -n "${GITHUB_TOKEN_FILE:-}" ] || die "GITHUB_TOKEN_FILE is not set in .env"
-  [ -f "$GITHUB_TOKEN_FILE" ] || die "token file $GITHUB_TOKEN_FILE is missing"
-  [ -s "$GITHUB_TOKEN_FILE" ] || die "token file $GITHUB_TOKEN_FILE is empty"
-  local mode
-  mode="$(stat -c %a "$GITHUB_TOKEN_FILE")"
-  [ $((8#$mode & 8#077)) -eq 0 ] || die "token file $GITHUB_TOKEN_FILE is readable by group or others (mode $mode); chmod 600 it"
+  if [ -n "${GITHUB_TOKEN_FILE:-}" ]; then
+    [ -s "$GITHUB_TOKEN_FILE" ] || die "token file $GITHUB_TOKEN_FILE is missing or empty"
+    local mode
+    mode="$(stat -c %a "$GITHUB_TOKEN_FILE")"
+    [ $((8#$mode & 8#077)) -eq 0 ] || die "token file $GITHUB_TOKEN_FILE is readable by group or others (mode $mode); chmod 600 it"
+  fi
   [ -n "${GIT_USER_NAME:-}" ] || die "GIT_USER_NAME is not set in .env"
   [ -n "${GIT_USER_EMAIL:-}" ] || die "GIT_USER_EMAIL is not set in .env"
 }
@@ -187,11 +189,24 @@ run_root_setup() {
   incus exec "$VM_NAME" --env "NODE_MAJOR=$NODE_MAJOR" --env "REBOOT_TIME=$REBOOT_TIME" -- bash "$GUEST_DIR/guest/setup-root.sh"
 }
 
-# The token goes in on stdin, never in argv. Applied on every run so a rotated token takes effect:
-# gh auth status exits 0 for a stored token GitHub now rejects, so it cannot gate this.
+# The token goes in on stdin, never in argv. A token file is applied on every run so a rotated token takes
+# effect. Without one, the stored login is kept while `gh api user` accepts it (gh auth status exits 0 for a
+# token GitHub rejects, so it cannot decide this); otherwise the token is read from the terminal.
 login_github() {
   echo "-- gh login and git identity --"
-  uexec -- gh auth login --hostname github.com --with-token < "$GITHUB_TOKEN_FILE"
+  if [ -n "${GITHUB_TOKEN_FILE:-}" ]; then
+    uexec -- gh auth login --hostname github.com --with-token < "$GITHUB_TOKEN_FILE"
+  elif uexec -- gh api user --jq .login >/dev/null 2>&1; then
+    echo "-- gh login in the VM is valid --"
+  else
+    [ -t 0 ] || die "the VM has no valid gh login: run from a terminal to type the token, or set GITHUB_TOKEN_FILE"
+    local token
+    read -r -s -p "GitHub token for the VM's account (classic: repo, read:org, gist): " token
+    echo
+    [ -n "$token" ] || die "no token entered"
+    uexec -- gh auth login --hostname github.com --with-token <<< "$token"
+    unset token
+  fi
   uexec -- gh auth setup-git
   uexec -- git config --global user.name "$GIT_USER_NAME"
   uexec -- git config --global user.email "$GIT_USER_EMAIL"

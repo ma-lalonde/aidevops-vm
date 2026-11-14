@@ -21,10 +21,10 @@ Needs Incus, `jq` and `ip` on the host.
    access token with scopes `repo`, `read:org`, `gist`. Fine-grained tokens cannot span several owners or
    third-party repos. Without `workflow`, GitHub refuses any push that changes `.github/workflows/`, so workers
    cannot change CI.
-2. Store the token in a file outside every repository with mode 0600.
-3. `cp .env.example .env`, then set `GITHUB_TOKEN_FILE`, `GIT_USER_NAME`, `GIT_USER_EMAIL` and `REPOS`. The script
-   refuses a missing or group- or other-readable token file.
-4. `./aidevops-vm.sh`
+2. `cp .env.example .env`, then set `GIT_USER_NAME`, `GIT_USER_EMAIL` and `REPOS`.
+3. `./aidevops-vm.sh`. When the VM has no valid gh login, it asks for the token on the terminal and pipes it to
+   `gh auth login`; the login persists on the home volume. To supply it unattended instead, set `GITHUB_TOKEN_FILE`
+   to a file with mode 0600 outside every repository; the script refuses one that is group- or other-readable.
 
 `REPOS` entries are `owner/repo[:pulse[:base-branch]]`. Every repo is cloned and registered with `aidevops repos add`;
 `aidevops init` is never run, so no aidevops file is added to a repo. `:pulse` turns the pulse on for the repo, and a
