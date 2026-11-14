@@ -30,7 +30,9 @@ Needs Incus, `jq` and `ip` on the host.
 `aidevops init` is never run, so no aidevops file is added to a repo. `:pulse` turns the pulse on for the repo, and a
 base branch (`owner/repo:pulse:dev`, or `owner/repo:dev` with the pulse off) makes workers open PRs against that
 branch. A repo without `:pulse` gets registered with the pulse off. A repo removed from `REPOS` has its pulse turned
-off and stays cloned.
+off and stays cloned. On every repo the account can push to, aidevops' label helper creates its labels
+(`auto-dispatch`, `status:*`, `tier:*` and the rest) when `auto-dispatch` is missing; creating labels needs Write,
+not admin.
 
 ## Tools and instructions for the repos
 

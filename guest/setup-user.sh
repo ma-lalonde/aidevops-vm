@@ -13,6 +13,7 @@ export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
 CLONE="$HOME/Git/aidevops"
 REPOS_JSON="$HOME/.config/aidevops/repos.json"
 PULSE_TIMER=aidevops-supervisor-pulse.timer
+LABEL_HELPER="$HOME/.aidevops/agents/scripts/label-sync-helper.sh"
 UPSTREAM_SLUG=marcusquinn/aidevops
 
 if [ "$PULSE" = on ]; then pulse_bool=true; else pulse_bool=false; fi
@@ -106,6 +107,16 @@ set_repo_fields() {
   mv "$tmp" "$REPOS_JSON"
 }
 
+# ensure_labels <slug>: on a repo the account can push to, aidevops' label helper creates its label set when
+# auto-dispatch is missing; ensure then fails the run if that label still cannot be confirmed.
+ensure_labels() {
+  [ "$(gh api "repos/$1" --jq .permissions.push)" = true ] || return 0
+  gh api "repos/$1/labels/auto-dispatch" >/dev/null 2>&1 && return 0
+  echo "-- creating aidevops labels on $1 --"
+  bash "$LABEL_HELPER" sync --repo "$1"
+  bash "$LABEL_HELPER" ensure "$1" auto-dispatch || { echo "ERROR: cannot create labels on $1" >&2; exit 1; }
+}
+
 for entry in $REPOS; do
   IFS=: read -r slug flag base <<< "$entry"
   if [ "$flag" != pulse ]; then base="$flag" flag=""; fi
@@ -130,6 +141,7 @@ for entry in $REPOS; do
     "$AIDEVOPS" repos pulse off "$slug"
   fi
   set_repo_fields "$slug" "${base:-}"
+  ensure_labels "$slug"
 done
 
 # A repo no longer marked :pulse stops, and stays cloned.
