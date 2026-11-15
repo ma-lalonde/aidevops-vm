@@ -117,7 +117,9 @@ fi
 systemctl --user daemon-reload
 
 # ---- repos -------------------------------------------------------------------
-login="$(gh api user --jq .login)"
+# The login gh stored, read offline so a rate-limited API does not stop the run.
+login="$(gh config get -h github.com user)"
+[ -n "$login" ] || { echo "ERROR: gh has no stored login" >&2; exit 1; }
 pulse_slugs=" "
 
 # set_repo_fields <slug> <base-branch>: generator opt-out and PR base branch, written atomically.
@@ -134,13 +136,14 @@ set_repo_fields() {
 }
 
 # ensure_labels <slug>: on a repo the account can push to, aidevops' label helper creates its label set when
-# auto-dispatch is missing; ensure then fails the run if that label still cannot be confirmed.
+# auto-dispatch is missing; ensure then warns when that label still cannot be confirmed.
 ensure_labels() {
   [ "$(gh api "repos/$1" --jq .permissions.push)" = true ] || return 0
   gh api "repos/$1/labels/auto-dispatch" >/dev/null 2>&1 && return 0
   echo "-- creating aidevops labels on $1 --"
   bash "$LABEL_HELPER" sync --repo "$1"
-  bash "$LABEL_HELPER" ensure "$1" auto-dispatch || { echo "ERROR: cannot create labels on $1" >&2; exit 1; }
+  bash "$LABEL_HELPER" ensure "$1" auto-dispatch \
+    || echo "WARNING: labels on $1 not confirmed (rate limit or access); the next run tries again" >&2
 }
 
 for entry in $REPOS; do

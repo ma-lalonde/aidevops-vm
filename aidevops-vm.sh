@@ -203,13 +203,17 @@ run_root_setup() {
 
 # The token goes in on stdin, never in argv. A token file is applied on every run so a rotated token takes
 # effect. Without one, the stored login is kept while `gh api user` accepts it (gh auth status exits 0 for a
-# token GitHub rejects, so it cannot decide this); otherwise the token is read from the terminal.
+# token GitHub rejects, so it cannot decide this), and also when GitHub answers with a rate limit, which says
+# nothing about the token; otherwise the token is read from the terminal.
 login_github() {
+  local answer
   echo "-- gh login and git identity --"
   if [ -n "${GITHUB_TOKEN_FILE:-}" ]; then
     uexec -- gh auth login --hostname github.com --with-token < "$GITHUB_TOKEN_FILE"
-  elif uexec -- gh api user --jq .login >/dev/null 2>&1; then
-    echo "-- gh login in the VM is valid --"
+  elif answer="$(uexec -- gh api user --jq .login 2>&1)"; then
+    echo "-- gh login in the VM is valid ($answer) --"
+  elif grep -qi 'rate limit' <<< "$answer"; then
+    echo "-- GitHub rate limit reached; keeping the stored gh login (check: gh api rate_limit in the VM) --"
   else
     [ -t 0 ] || die "the VM has no valid gh login: run from a terminal to type the token, or set GITHUB_TOKEN_FILE"
     local token
