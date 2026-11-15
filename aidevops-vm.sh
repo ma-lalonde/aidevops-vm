@@ -201,27 +201,45 @@ run_root_setup() {
     --env "VALE_VERSION=$VALE_VERSION" -- bash "$GUEST_DIR/guest/setup-root.sh"
 }
 
+# token_check: the token on stdin, judged by guest/token-check.sh (its exit codes apply).
+token_check() { uexec -- bash "$GUEST_DIR/guest/token-check.sh"; }
+
 # The token goes in on stdin, never in argv. A token file is applied on every run so a rotated token takes
-# effect. Without one, the stored login is kept while `gh api user` accepts it (gh auth status exits 0 for a
-# token GitHub rejects, so it cannot decide this), and also when GitHub answers with a rate limit, which says
-# nothing about the token; otherwise the token is read from the terminal.
+# effect. Without one, the stored login is kept while GitHub accepts it; otherwise the token is read from the
+# terminal, checked, and asked again until GitHub accepts it. gh validates a token when storing it, which fails
+# while the account's budget is spent, so the run stops then with the reset time.
 login_github() {
-  local answer
+  local status rc token
   echo "-- gh login and git identity --"
   if [ -n "${GITHUB_TOKEN_FILE:-}" ]; then
+    rc=0; status="$(token_check < "$GITHUB_TOKEN_FILE")" || rc=$?
+    echo "-- token file: $status --"
+    [ "$rc" -eq 0 ] || die "token file not usable now"
     uexec -- gh auth login --hostname github.com --with-token < "$GITHUB_TOKEN_FILE"
-  elif answer="$(uexec -- gh api user --jq .login 2>&1)"; then
-    echo "-- gh login in the VM is valid ($answer) --"
-  elif grep -qi 'rate limit' <<< "$answer"; then
-    echo "-- GitHub rate limit reached; keeping the stored gh login (check: gh api rate_limit in the VM) --"
   else
-    [ -t 0 ] || die "the VM has no valid gh login: run from a terminal to type the token, or set GITHUB_TOKEN_FILE"
-    local token
-    read -r -s -p "GitHub token for the VM's account (classic: repo, read:org, gist): " token
-    echo
-    [ -n "$token" ] || die "no token entered"
-    uexec -- gh auth login --hostname github.com --with-token <<< "$token"
-    unset token
+    rc=0; status="$(gh_login)" || rc=$?
+    echo "-- stored gh login: $status --"
+    case "$rc" in
+      2) die "cannot check the stored login now" ;;
+      3) die "stop the pulse (pulse-stop) and re-run after the reset" ;;
+    esac
+    if [ "$rc" -ne 0 ]; then
+      [ -t 0 ] || die "the VM has no valid gh login: run from a terminal to type the token, or set GITHUB_TOKEN_FILE"
+      while :; do
+        read -r -s -p "GitHub token for the VM's account (classic: repo, read:org, gist): " token
+        echo
+        token="${token//[$' \t\r\n']/}"
+        rc=0; status="$(token_check <<< "$token")" || rc=$?
+        echo "-- new token: $status --"
+        case "$rc" in
+          0) break ;;
+          2) die "cannot check the token now" ;;
+          3) die "token is good; stop the pulse (pulse-stop) and re-run after the reset to store it" ;;
+        esac
+      done
+      uexec -- gh auth login --hostname github.com --with-token <<< "$token"
+      unset token
+    fi
   fi
   uexec -- gh auth setup-git
   uexec -- git config --global user.name "$GIT_USER_NAME"
@@ -322,6 +340,8 @@ tools_installed() {
     && { [ -z "$VALE_VERSION" ] || [ "$(uexec -- vale --version | cut -d' ' -f3)" = "$VALE_VERSION" ]; }
 }
 
+gh_login() { uexec -- bash -c 'gh auth token 2>/dev/null | bash "$1"' _ "$GUEST_DIR/guest/token-check.sh"; }
+
 linger() { [ "$(gexec loginctl show-user "$GUEST_USER" -p Linger --value)" = yes ]; }
 
 source_access() {
@@ -337,6 +357,7 @@ cmd_check() {
     user_timers_have aidevops-auto-update aidevops-repo-sync aidevops-pulse-watchdog
   if [ "$PULSE" = on ]; then check_step "user timer: supervisor pulse" user_timers_have aidevops-supervisor-pulse; fi
   check_step "no aidevops cron line" no_cron_line
+  check_step "gh login accepted by GitHub, budget left" gh_login
   check_step "linger enabled" linger
   check_step "source-access broker trusted (README, one-time sign-ins)" source_access
   check_step "go, uv (with its update timer) and vale installed" tools_installed
