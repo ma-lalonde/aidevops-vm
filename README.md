@@ -82,8 +82,10 @@ workers launch OpenCode directly and do not need it.
 `pulse-stop` holds across updates and across `./aidevops-vm.sh` runs until `pulse-start`. Setting `PULSE=off` disables
 the pulse timer on the next run; setting it back to `on` enables it again, unless `pulse-stop` is in effect. For a hard stop, `incus stop aidevops-vm`.
 
-Work starts when a person labels an issue `auto-dispatch`. `no-auto-dispatch`, `parent-task` and `hold-for-review`
-block dispatch.
+The pulse works on every open issue in a repo marked `:pulse`, labelled `auto-dispatch` or not. `no-auto-dispatch`,
+`parent-task`, `hold-for-review`, `status:blocked` and any `needs-*` label block dispatch. `auto-dispatch` raises an
+issue's rank and locks its conversation (GitHub shows "locked as resolved") so only people with write access can add
+to the text a worker reads.
 
 Every run re-applies the configuration in `guest/`: packages, unattended-upgrades, the aidevops config values, the
 memory limit of the pulse unit, repo registration. The aidevops clone in `~/Git/aidevops` is owned by aidevops'
