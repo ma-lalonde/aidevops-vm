@@ -19,7 +19,9 @@ UPSTREAM_SLUG=marcusquinn/aidevops
 if [ "$PULSE" = on ]; then pulse_bool=true; else pulse_bool=false; fi
 
 # ---- npm prefix the user can write ------------------------------------------
-mkdir -p "$HOME/.npm-global"
+# lib/ must exist: aidevops falls back to `sudo npm install -g` (into /usr, on the system disk a rebuild replaces)
+# when the prefix's lib/ is not writable.
+mkdir -p "$HOME/.npm-global/lib" "$HOME/.npm-global/bin"
 npm config set prefix "$HOME/.npm-global"
 profile_line='export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"'
 grep -qxF "$profile_line" "$HOME/.profile" 2>/dev/null || printf '%s\n' "$profile_line" >> "$HOME/.profile"
@@ -65,6 +67,8 @@ if [ "$PULSE" = on ] && ! pulse_timer_present && [ ! -f "$HOME/.aidevops/logs/pu
   need_setup=1
 fi
 grep -q 'opencode-aidevops' "$OPENCODE_JSON" || need_setup=1
+# The ~/.local/bin/opencode shim survives a rebuild on the home volume; setup reinstalls a target that is gone.
+"$HOME/.local/bin/opencode" --version >/dev/null 2>&1 || need_setup=1
 if [ "$need_setup" = 1 ]; then
   # Consent for the pulse is read at setup time: the config file when it exists, the env var otherwise.
   bash "$CLONE/.agents/scripts/config-helper.sh" set orchestration.supervisor_pulse "$pulse_bool" \
