@@ -364,6 +364,8 @@ cmd_check() {
   # The service runs first, so health-check judges the run just made, not only the timer's last one.
   check_step "auto-update service runs" uexec -- timeout 900 systemctl --user start aidevops-auto-update.service
   check_step "auto-update health-check" uaidevops auto-update health-check
+  check_step "OpenCode runtime configuration matches aidevops" \
+    uexec -- bash "$GUEST_HOME/.aidevops/agents/scripts/generate-runtime-config.sh" verify --runtime opencode
   check_step "aidevops status" uaidevops status
   check_step "pulse status" uaidevops pulse status
   check_step "egress probe" probe

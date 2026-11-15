@@ -181,6 +181,13 @@ if [ -f "$REPOS_JSON" ]; then
   done < <(jq -r '.initialized_repos[] | select(.pulse == true) | .slug' "$REPOS_JSON")
 fi
 
+# ---- OpenCode agents, commands and managed keys match the deployed aidevops (workers start from them) ---
+if ! bash "$HOME/.aidevops/agents/scripts/generate-runtime-config.sh" verify --runtime opencode >/dev/null 2>&1; then
+  echo "-- OpenCode runtime configuration is stale; regenerating --"
+  "$AIDEVOPS" setup --scope runtime-config </dev/null
+  bash "$HOME/.aidevops/agents/scripts/generate-runtime-config.sh" verify --runtime opencode
+fi
+
 # ---- instructions repository: kept current, its files loaded by every OpenCode session ----------------
 # Runs after setup.sh, which rewrites opencode.json but keeps the entries it finds in `instructions`.
 if [ -n "$INSTRUCTIONS_REPO" ]; then
