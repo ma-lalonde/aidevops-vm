@@ -58,8 +58,8 @@ EOF
 
 # ---- packages ---------------------------------------------------------------
 apt-get update -qq
-apt-get install -y -qq git curl ca-certificates gnupg jq ripgrep sqlite3 fd-find python3 lsof openssl gh nodejs \
-  golang-go unattended-upgrades >/dev/null
+apt-get install -y -qq git curl ca-certificates gnupg jq ripgrep sqlite3 fd-find python3 python3-venv lsof openssl \
+  gh nodejs golang-go shellcheck shfmt unattended-upgrades >/dev/null
 [ -e /usr/local/bin/fd ] || ln -s "$(command -v fdfind)" /usr/local/bin/fd
 
 # ---- uv: installed now, then kept at the latest release by a daily timer --------------------------------

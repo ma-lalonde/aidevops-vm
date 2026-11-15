@@ -92,7 +92,10 @@ Worker slots follow free memory: `(available RAM - RAM_RESERVE_MB - growth) / 15
   every ten minutes and rolls back a failed deploy.
 - OpenCode: the same updater's six-hourly tool check, through npm.
 - uv: `aidevops-uv-update.timer` (system timer, daily) installs the latest release.
-- Everything apt: unattended-upgrades, including the GitHub CLI and NodeSource repositories.
+- markdownlint-cli2, which aidevops' linters use: `aidevops-vm-npm-tools.timer` (user timer, daily) installs the
+  latest release.
+- Everything apt: unattended-upgrades, including the GitHub CLI and NodeSource repositories, shellcheck, shfmt and
+  python3-venv.
 
 See it with `./aidevops-vm.sh check`, or inside the VM `systemctl --user list-timers`, `aidevops auto-update status`,
 `aidevops pulse status`.

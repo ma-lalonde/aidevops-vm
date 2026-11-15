@@ -24,6 +24,20 @@ npm config set prefix "$HOME/.npm-global"
 profile_line='export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"'
 grep -qxF "$profile_line" "$HOME/.profile" 2>/dev/null || printf '%s\n' "$profile_line" >> "$HOME/.profile"
 
+# ---- npm tools aidevops' linters use and its updater does not cover: installed now, updated daily ------
+NPM_TOOLS="markdownlint-cli2"
+for tool in $NPM_TOOLS; do
+  command -v "$tool" >/dev/null || npm install -g "$tool@latest"
+done
+units="$HOME/.config/systemd/user"
+mkdir -p "$units"
+printf '%s\n' '[Unit]' 'Description=Install the latest npm tools of aidevops-vm' '' '[Service]' 'Type=oneshot' \
+  "ExecStart=/usr/bin/npm install -g $(printf '%s@latest ' $NPM_TOOLS)" > "$units/aidevops-vm-npm-tools.service"
+printf '%s\n' '[Unit]' 'Description=Daily npm tool update' '' '[Timer]' 'OnCalendar=daily' 'Persistent=true' '' \
+  '[Install]' 'WantedBy=timers.target' > "$units/aidevops-vm-npm-tools.timer"
+systemctl --user daemon-reload
+systemctl --user enable --now aidevops-vm-npm-tools.timer
+
 # ---- aidevops clone: the updater owns it after this --------------------------
 if [ ! -d "$CLONE/.git" ]; then
   mkdir -p "$HOME/Git"
