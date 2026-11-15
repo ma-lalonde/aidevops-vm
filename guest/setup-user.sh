@@ -50,6 +50,11 @@ pulse_timer_present() {
   systemctl --user cat "$PULSE_TIMER" >/dev/null 2>&1
 }
 
+# Setup installs the pulse watchdog last, so a setup that stopped early leaves it missing.
+watchdog_timer_present() {
+  systemctl --user cat aidevops-pulse-watchdog.timer >/dev/null 2>&1
+}
+
 pulse_timer_enabled() {
   systemctl --user is-enabled --quiet "$PULSE_TIMER" 2>/dev/null
 }
@@ -59,11 +64,12 @@ OPENCODE_JSON="$HOME/.config/opencode/opencode.json"
 mkdir -p "$(dirname "$OPENCODE_JSON")"
 [ -f "$OPENCODE_JSON" ] || printf '{"$schema": "https://opencode.ai/config.json"}\n' > "$OPENCODE_JSON"
 
-# ---- setup runs on first install, when the pulse timer is missing while PULSE=on, or when the plugin is not
-# ---- registered in opencode.json ----------------------------------------------------------------------
+# ---- setup runs on first install, when the pulse timer or its watchdog is missing while PULSE=on, or when the
+# ---- plugin is not registered in opencode.json --------------------------------------------------------
 need_setup=0
 [ -f "$HOME/.aidevops/agents/VERSION" ] || need_setup=1
-if [ "$PULSE" = on ] && ! pulse_timer_present && [ ! -f "$HOME/.aidevops/logs/pulse-session.stop" ]; then
+if [ "$PULSE" = on ] && { ! pulse_timer_present || ! watchdog_timer_present; } \
+  && [ ! -f "$HOME/.aidevops/logs/pulse-session.stop" ]; then
   need_setup=1
 fi
 grep -q 'opencode-aidevops' "$OPENCODE_JSON" || need_setup=1
