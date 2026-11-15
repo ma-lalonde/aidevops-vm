@@ -27,7 +27,9 @@ Needs Incus, `jq` and `ip` on the host.
    to a file with mode 0600 outside every repository; the script refuses one that is group- or other-readable.
 
 `REPOS` entries are `owner/repo[:pulse][:base-branch]`. Every repo is cloned and registered with `aidevops repos add`;
-`aidevops init` is never run, so no aidevops file is added to a repo. `:pulse` turns the pulse on for the repo, and a
+`aidevops init` is never run, so no aidevops file is added to a repo. `:pulse` turns the pulse on for the repo and
+gives it the `maintainer` role in `repos.json`, so the pulse writes to it and dispatches briefs without a Files Scope
+even though the account does not own it (GitHub still allows only what Write allows), and a
 base branch (`owner/repo:pulse:dev`, or `owner/repo:dev` with the pulse off) makes workers open PRs against that
 branch. A repo without `:pulse` gets registered with the pulse off. A repo removed from `REPOS` has its pulse turned
 off and stays cloned. On every repo the account can push to, aidevops' label helper creates its labels

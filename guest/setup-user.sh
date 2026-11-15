@@ -128,15 +128,19 @@ login="$(gh config get -h github.com user)"
 [ -n "$login" ] || { echo "ERROR: gh has no stored login" >&2; exit 1; }
 pulse_slugs=" "
 
-# set_repo_fields <slug> <base-branch>: generator opt-out and PR base branch, written atomically.
+# set_repo_fields <slug> <base-branch> <role>: generator opt-out, PR base branch and pulse role, written atomically.
+# aidevops derives the role from the repo owner and the gh login, so a machine account is a contributor on every repo
+# it does not own, and the pulse then refuses all GitHub writes there and every brief without a Files Scope. An empty
+# role leaves that derivation in place.
 set_repo_fields() {
   local tmp
   tmp="$(mktemp "$REPOS_JSON.XXXXXX")"
-  jq --arg s "$1" --arg b "$2" '
+  jq --arg s "$1" --arg b "$2" --arg r "$3" '
     .initialized_repos |= map(
       if .slug == $s then
         .dependabot_alert_monitor = false
         | (if $b == "" then del(.pr_base_branch) else .pr_base_branch = $b end)
+        | (if $r == "" then del(.role) else .role = $r end)
       else . end)' "$REPOS_JSON" > "$tmp"
   mv "$tmp" "$REPOS_JSON"
 }
@@ -172,12 +176,18 @@ for entry in $REPOS; do
   if [ "$flag" = pulse ] && [ "$PULSE" = on ]; then
     "$AIDEVOPS" repos pulse on "$slug"
     pulse_slugs="$pulse_slugs$slug "
+    role=maintainer
   else
     "$AIDEVOPS" repos pulse off "$slug"
+    role=""
   fi
-  set_repo_fields "$slug" "${base:-}"
+  set_repo_fields "$slug" "${base:-}" "$role"
   ensure_labels "$slug"
 done
+
+# The pulse skips a brief it judged untrusted for 15 minutes; dropping those records lets the next pulse judge every
+# brief with the roles just written.
+rm -rf "$HOME/.aidevops/.agent-workspace/tmp/brief-scope-untrusted"
 
 # A repo no longer marked :pulse stops, and stays cloned.
 if [ -f "$REPOS_JSON" ]; then
