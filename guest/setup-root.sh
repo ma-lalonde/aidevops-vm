@@ -39,12 +39,16 @@ fi
 install -d -o root -g root -m 0755 /home/.system /home/.system/etc-aidevops /etc/aidevops
 grep -q '^/home/.system/etc-aidevops /etc/aidevops ' /etc/fstab \
   || echo '/home/.system/etc-aidevops /etc/aidevops none bind,x-systemd.requires-mounts-for=/home 0 0' >> /etc/fstab
+systemctl daemon-reload
 mountpoint -q /etc/aidevops || mount /etc/aidevops
 
 # ---- apt sources ------------------------------------------------------------
+# apt waits up to 10 minutes for the lock the VM's own first-boot apt run may hold.
+APT=(apt-get -q -o DPkg::Lock::Timeout=600)
+echo "-- apt: package lists --"
 install -d -m 0755 /etc/apt/keyrings
-apt-get update -qq
-apt-get install -y -qq curl ca-certificates gnupg >/dev/null
+"${APT[@]}" update
+"${APT[@]}" install -y curl ca-certificates gnupg
 
 if [ ! -s /etc/apt/keyrings/githubcli-archive-keyring.gpg ]; then
   curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
@@ -64,12 +68,14 @@ deb [arch=$arch signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesour
 EOF
 
 # ---- packages ---------------------------------------------------------------
-apt-get update -qq
-apt-get install -y -qq git curl ca-certificates gnupg jq ripgrep sqlite3 fd-find python3 python3-venv lsof openssl \
-  gh nodejs golang-go shellcheck shfmt unattended-upgrades >/dev/null
+echo "-- apt: installing packages (several minutes on a new VM) --"
+"${APT[@]}" update
+"${APT[@]}" install -y git curl ca-certificates gnupg jq ripgrep sqlite3 fd-find python3 python3-venv lsof openssl \
+  gh nodejs golang-go shellcheck shfmt unattended-upgrades
 [ -e /usr/local/bin/fd ] || ln -s "$(command -v fdfind)" /usr/local/bin/fd
 
 # ---- uv: installed now, then kept at the latest release by a daily timer --------------------------------
+echo "-- uv --"
 GUEST_LIB="$(dirname "${BASH_SOURCE[0]}")"
 write_if_changed /etc/systemd/system/aidevops-uv-update.service 0644 <<EOF
 [Unit]
@@ -97,6 +103,7 @@ systemctl enable --now aidevops-uv-update.timer
 command -v uv >/dev/null || bash "$GUEST_LIB/update-uv.sh"
 
 # ---- Vale: the pinned release, checked against the checksum the release publishes ----------------------
+echo "-- vale --"
 if [ -n "$VALE_VERSION" ] && [ "$(vale --version 2>/dev/null | cut -d' ' -f3)" != "$VALE_VERSION" ]; then
   case "$arch" in
     amd64) vale_arch=64-bit ;;
@@ -109,6 +116,7 @@ if [ -n "$VALE_VERSION" ] && [ "$(vale --version 2>/dev/null | cut -d' ' -f3)" !
 fi
 
 # ---- unattended upgrades ----------------------------------------------------
+echo "-- unattended upgrades and linger --"
 write_if_changed /etc/apt/apt.conf.d/20auto-upgrades 0644 <<'EOF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
