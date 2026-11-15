@@ -59,7 +59,7 @@ gexec() { incus exec "$VM_NAME" -- "$@"; }
 # Command in the VM as the VM user, with the user's systemd manager reachable.
 uexec() {
   incus exec "$VM_NAME" --user "$GUEST_UID" --group "$GUEST_UID" --cwd "$GUEST_HOME" \
-    --env "HOME=$GUEST_HOME" \
+    --env "HOME=$GUEST_HOME" --env "USER=$GUEST_USER" --env "LOGNAME=$GUEST_USER" \
     --env "XDG_RUNTIME_DIR=/run/user/$GUEST_UID" \
     --env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$GUEST_UID/bus" \
     --env "PATH=$GUEST_HOME/.npm-global/bin:$GUEST_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
