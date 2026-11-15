@@ -361,10 +361,11 @@ cmd_check() {
   check_step "linger enabled" linger
   check_step "source-access broker trusted (README, one-time sign-ins)" source_access
   check_step "go, uv (with its update timer) and vale installed" tools_installed
+  # The service runs first, so health-check judges the run just made, not only the timer's last one.
+  check_step "auto-update service runs" uexec -- timeout 900 systemctl --user start aidevops-auto-update.service
   check_step "auto-update health-check" uaidevops auto-update health-check
   check_step "aidevops status" uaidevops status
   check_step "pulse status" uaidevops pulse status
-  check_step "auto-update service runs" uexec -- timeout 900 systemctl --user start aidevops-auto-update.service
   check_step "egress probe" probe
   [ "$failures" -eq 0 ] || die "$failures check(s) failed"
   echo "all checks passed"
