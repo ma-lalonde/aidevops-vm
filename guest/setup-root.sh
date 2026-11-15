@@ -13,6 +13,13 @@ export DEBIAN_FRONTEND=noninteractive
 
 [ "$(id -u "$GUEST_USER")" = "$GUEST_UID" ] || { echo "ERROR: $GUEST_USER is not uid $GUEST_UID" >&2; exit 1; }
 
+# The VM user has no password; aidevops uses `sudo -n` (tool updates) and one sudo step (source-access broker).
+sudoers_tmp="$(mktemp)"
+printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$GUEST_USER" > "$sudoers_tmp"
+visudo -cqf "$sudoers_tmp"
+install -m 0440 "$sudoers_tmp" /etc/sudoers.d/90-aidevops-vm
+rm -f "$sudoers_tmp"
+
 # write_if_changed <path> <mode>: stdin becomes the file when it differs; returns 0 either way.
 write_if_changed() {
   local tmp
