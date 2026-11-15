@@ -173,6 +173,10 @@ ensure_vm() {
       incus config device override "$VM_NAME" eth0 security.acls="$ACL" security.acls.default.egress.action=reject
     fi
   fi
+  # Incus starts the VM again when its QEMU process exits unexpectedly (the host's OOM killer, a crash).
+  if [ "$(incus config get "$VM_NAME" boot.autorestart)" != true ]; then
+    incus config set "$VM_NAME" boot.autorestart=true
+  fi
   if vm_running; then
     echo "-- $VM_NAME already running --"
   else
