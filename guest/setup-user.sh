@@ -52,12 +52,19 @@ pulse_timer_enabled() {
   systemctl --user is-enabled --quiet "$PULSE_TIMER" 2>/dev/null
 }
 
-# ---- first install, or the pulse timer is missing while PULSE=on ---------------
+# ---- OpenCode config: setup registers aidevops' plugin in it only when the file exists ----------------
+OPENCODE_JSON="$HOME/.config/opencode/opencode.json"
+mkdir -p "$(dirname "$OPENCODE_JSON")"
+[ -f "$OPENCODE_JSON" ] || printf '{"$schema": "https://opencode.ai/config.json"}\n' > "$OPENCODE_JSON"
+
+# ---- setup runs on first install, when the pulse timer is missing while PULSE=on, or when the plugin is not
+# ---- registered in opencode.json ----------------------------------------------------------------------
 need_setup=0
 [ -f "$HOME/.aidevops/agents/VERSION" ] || need_setup=1
 if [ "$PULSE" = on ] && ! pulse_timer_present && [ ! -f "$HOME/.aidevops/logs/pulse-session.stop" ]; then
   need_setup=1
 fi
+grep -q 'opencode-aidevops' "$OPENCODE_JSON" || need_setup=1
 if [ "$need_setup" = 1 ]; then
   # Consent for the pulse is read at setup time: the config file when it exists, the env var otherwise.
   bash "$CLONE/.agents/scripts/config-helper.sh" set orchestration.supervisor_pulse "$pulse_bool" \
@@ -177,9 +184,7 @@ if [ -n "$INSTRUCTIONS_REPO" ]; then
   else
     git -C "$instr_path" pull --ff-only
   fi
-  opencode_json="$HOME/.config/opencode/opencode.json"
-  mkdir -p "$(dirname "$opencode_json")"
-  [ -f "$opencode_json" ] || printf '{"$schema": "https://opencode.ai/config.json"}\n' > "$opencode_json"
+  opencode_json="$OPENCODE_JSON"
   for file in $INSTRUCTIONS_FILES; do
     [ -f "$instr_path/$file" ] || { echo "ERROR: $instr_path/$file does not exist" >&2; exit 1; }
     tmp="$(mktemp "$opencode_json.XXXXXX")"
