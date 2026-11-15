@@ -24,6 +24,7 @@ set +a
 
 VM_NAME="${VM_NAME:-aidevops-vm}"
 POOL="${POOL:-default}"
+NETWORK="${NETWORK:-incusbr0}"
 VM_CPU="${VM_CPU:-4}"
 VM_MEMORY="${VM_MEMORY:-8GiB}"
 ROOT_SIZE="${ROOT_SIZE:-16GiB}"
@@ -169,8 +170,11 @@ ensure_vm() {
     echo "-- attaching $ACL to eth0 --"
     if incus config device get "$VM_NAME" eth0 type >/dev/null 2>&1; then
       incus config device set "$VM_NAME" eth0 security.acls="$ACL" security.acls.default.egress.action=reject
-    else
+    elif incus query "/1.0/instances/$VM_NAME" | jq -e '.expanded_devices.eth0' >/dev/null; then
       incus config device override "$VM_NAME" eth0 security.acls="$ACL" security.acls.default.egress.action=reject
+    else
+      incus config device add "$VM_NAME" eth0 nic network="$NETWORK" name=eth0 \
+        security.acls="$ACL" security.acls.default.egress.action=reject
     fi
   fi
   # Incus starts the VM again when its QEMU process exits unexpectedly (the host's OOM killer, a crash).
