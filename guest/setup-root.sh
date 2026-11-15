@@ -15,7 +15,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 # The VM user has no password; aidevops uses `sudo -n` (tool updates) and one sudo step (source-access broker).
 sudoers_tmp="$(mktemp)"
-printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$GUEST_USER" > "$sudoers_tmp"
+# verifypw=any: `sudo -v` (the broker's step) asks no password, although the sudo group's entry requires one.
+printf 'Defaults:%s verifypw=any\n%s ALL=(ALL) NOPASSWD:ALL\n' "$GUEST_USER" "$GUEST_USER" > "$sudoers_tmp"
 visudo -cqf "$sudoers_tmp"
 install -m 0440 "$sudoers_tmp" /etc/sudoers.d/90-aidevops-vm
 rm -f "$sudoers_tmp"
