@@ -61,6 +61,12 @@ home volume.
   OAuth to Claude Code and Anthropic's own apps
   ([Authentication and credential use](https://code.claude.com/docs/en/legal-and-compliance)); using it through the
   account pool is at the account owner's risk.
+- aidevops' source-access broker: `aidevops setup --scope source-access`, which asks for one sudo confirmation and
+  creates its root-only signing trust in `/etc/aidevops`. Until then source access stays fail-closed and setup prints
+  "Source-access broker deferred". `/etc/aidevops` is bind-mounted from the home volume, so a rebuild keeps it.
+
+Setup also prints "OpenCode service: Managed owner is not running": aidevops' optional long-running OpenCode service;
+workers launch OpenCode directly and do not need it.
 
 ## Operation
 

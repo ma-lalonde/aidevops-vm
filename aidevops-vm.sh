@@ -320,6 +320,11 @@ tools_installed() {
 
 linger() { [ "$(gexec loginctl show-user "$GUEST_USER" -p Linger --value)" = yes ]; }
 
+source_access() {
+  gexec mountpoint -q /etc/aidevops \
+    && gexec python3 -I -B /etc/aidevops/source-access/source-access-helper.py trust-check
+}
+
 cmd_check() {
   vm_running || die "VM $VM_NAME is not running"
   check_step "apt timers scheduled" apt_timers
@@ -329,6 +334,7 @@ cmd_check() {
   if [ "$PULSE" = on ]; then check_step "user timer: supervisor pulse" user_timers_have aidevops-supervisor-pulse; fi
   check_step "no aidevops cron line" no_cron_line
   check_step "linger enabled" linger
+  check_step "source-access broker trusted (README, one-time sign-ins)" source_access
   check_step "go, uv (with its update timer) and vale installed" tools_installed
   check_step "auto-update health-check" uaidevops auto-update health-check
   check_step "aidevops status" uaidevops status

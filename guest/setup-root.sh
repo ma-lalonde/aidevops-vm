@@ -34,6 +34,13 @@ if [ ! -d "/home/$GUEST_USER" ]; then
   chown -R "$GUEST_USER:$GUEST_USER" "/home/$GUEST_USER"
 fi
 
+# /etc/aidevops (the source-access broker and its root-only signing trust) lives on the volume, so the one-time
+# interactive `aidevops setup --scope source-access` survives a rebuild. Root-owned, outside the user's home.
+install -d -o root -g root -m 0755 /home/.system /home/.system/etc-aidevops /etc/aidevops
+grep -q '^/home/.system/etc-aidevops /etc/aidevops ' /etc/fstab \
+  || echo '/home/.system/etc-aidevops /etc/aidevops none bind,x-systemd.requires-mounts-for=/home 0 0' >> /etc/fstab
+mountpoint -q /etc/aidevops || mount /etc/aidevops
+
 # ---- apt sources ------------------------------------------------------------
 install -d -m 0755 /etc/apt/keyrings
 apt-get update -qq
