@@ -48,6 +48,10 @@ not admin.
   Each path of `INSTRUCTIONS_FILES` (relative to that repo, space-separated) is added to
   `instructions` in `~/.config/opencode/opencode.json` when missing, after aidevops' own setup, which keeps it. A path
   that does not exist in the clone stops the run.
+- Every OpenCode session may read any clone under `~/Git` (`~/Git` and `~/Git/**` are `external_directory` allows in
+  `~/.config/opencode/opencode.json`), so a worker reads a sibling repository or the instructions repository without
+  pausing its issue for a permission request. aidevops' write fence still keeps the edit tools and mutating git
+  commands inside the worker's own worktree and temp directory; a plain shell write under `~/Git` is not fenced.
 - `~/.config/git/ignore` lists aidevops' runtime state (`.agents/loop-state/`, `.agents/tmp/`, `.agents/memory/`,
   `.agents/.full-loop-cleanup-deferred`), so `git add -A` in a worktree never stages it.
 

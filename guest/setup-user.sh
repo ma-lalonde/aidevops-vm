@@ -204,6 +204,30 @@ if ! bash "$HOME/.aidevops/agents/scripts/generate-runtime-config.sh" verify --r
   bash "$HOME/.aidevops/agents/scripts/generate-runtime-config.sh" verify --runtime opencode
 fi
 
+# ---- OpenCode sessions read every clone under ~/Git without a per-issue permission request ------------
+# aidevops keeps these rules when it rewrites opencode.json and appends its own after them. Its write fence still
+# keeps the edit tools and mutating git commands inside the worker's worktree and temp directory; a plain shell write
+# under ~/Git is no longer stopped by a permission request.
+READ_ROOTS='["~/Git", "~/Git/**"]'
+tmp="$(mktemp "$OPENCODE_JSON.XXXXXX")"
+jq --argjson roots "$READ_ROOTS" '
+  if (.permissions | type) == "array" then
+    reduce $roots[] as $r (.;
+      if any(.permissions[]; .action == "external_directory" and .resource == $r and .effect == "allow") then .
+      else .permissions += [{action: "external_directory", resource: $r, effect: "allow"}] end)
+  else
+    .permission |= (if type == "string" then {"*": ., external_directory: {"*": .}}
+                    elif type == "object" then . else {} end)
+    | .permission.external_directory |= (if . == "allow" then .
+                                         elif type == "string" then {"*": .} else (. // {}) end)
+    | if .permission.external_directory == "allow" then .
+      else reduce $roots[] as $r (.;
+        if .permission.external_directory[$r] == "allow" then .
+        else .permission.external_directory |= (del(.[$r]) | .[$r] = "allow") end)
+      end
+  end' "$OPENCODE_JSON" > "$tmp"
+if cmp -s "$tmp" "$OPENCODE_JSON"; then rm -f "$tmp"; else mv "$tmp" "$OPENCODE_JSON"; fi
+
 # ---- instructions repository: kept current, its files loaded by every OpenCode session ----------------
 # Runs after setup.sh, which rewrites opencode.json but keeps the entries it finds in `instructions`.
 if [ -n "$INSTRUCTIONS_REPO" ]; then
